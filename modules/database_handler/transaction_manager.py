@@ -5,9 +5,10 @@ import logging
 import random
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Any, Callable, Generator, Sequence, TypeVar
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -16,49 +17,72 @@ logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+@dataclass
+class TransactionConfig:
+    """Engine and session configuration for TransactionManager."""
+
+    url: str
+    echo: bool = False
+    pool_size: int = 5
+    max_overflow: int = 10
+    pool_timeout: int = 30
+    pool_pre_ping: bool = True
+    pool_recycle: int = 3600
+    isolation_level: str | None = None
+    connect_args: dict[str, Any] = field(default_factory=dict)
+    expire_on_commit: bool = False
+    autoflush: bool = False
+    autocommit: bool = False
+
+
 class TransactionManager:
     """SQLAlchemy 2.x transaction manager with ACID best practices."""
 
-    def __init__(
-        self,
-        engine_or_url: Any,
-        *,
-        echo: bool = False,
-        pool_size: int = 5,
-        max_overflow: int = 10,
-        pool_timeout: int = 30,
-        pool_recycle: int = 3600,
-        expire_on_commit: bool = False,
-    ) -> None:
-        if isinstance(engine_or_url, str):
-            engine_kwargs: dict[str, Any] = {"echo": echo}
-            if not engine_or_url.startswith("sqlite"):
+    def __init__(self, config_or_engine: TransactionConfig | Engine) -> None:
+        if isinstance(config_or_engine, TransactionConfig):
+            cfg = config_or_engine
+            engine_kwargs: dict[str, Any] = {"echo": cfg.echo}
+            if cfg.connect_args:
+                engine_kwargs["connect_args"] = cfg.connect_args
+            if cfg.isolation_level is not None:
+                engine_kwargs["isolation_level"] = cfg.isolation_level
+            if not cfg.url.startswith("sqlite"):
                 engine_kwargs.update(
                     {
-                        "pool_size": pool_size,
-                        "max_overflow": max_overflow,
-                        "pool_timeout": pool_timeout,
-                        "pool_recycle": pool_recycle,
-                        "pool_pre_ping": True,
+                        "pool_size": cfg.pool_size,
+                        "max_overflow": cfg.max_overflow,
+                        "pool_timeout": cfg.pool_timeout,
+                        "pool_recycle": cfg.pool_recycle,
+                        "pool_pre_ping": cfg.pool_pre_ping,
                     }
                 )
-            self._engine = create_engine(engine_or_url, **engine_kwargs)
+            self._engine = create_engine(cfg.url, **engine_kwargs)
+            self._session_factory = sessionmaker(
+                bind=self._engine,
+                expire_on_commit=cfg.expire_on_commit,
+                autoflush=cfg.autoflush,
+                autocommit=cfg.autocommit,
+            )
+            is_sqlite = cfg.url.startswith("sqlite")
+            logger.info(
+                "TransactionManager initialized (engine=%s%s)",
+                self._engine.url,
+                "" if is_sqlite else f", pool_size={cfg.pool_size}, max_overflow={cfg.max_overflow}",
+            )
+        elif isinstance(config_or_engine, Engine):
+            self._engine = config_or_engine
+            self._session_factory = sessionmaker(
+                bind=self._engine,
+                expire_on_commit=False,
+            )
+            logger.info("TransactionManager initialized from engine (engine=%s)", self._engine.url)
         else:
-            self._engine = engine_or_url
-
-        self._session_factory = sessionmaker(
-            bind=self._engine,
-            expire_on_commit=expire_on_commit,
-        )
-
-        logger.info(
-            "TransactionManager initialized (engine=%s, pool_size=%s)",
-            self._engine.url,
-            pool_size,
-        )
+            raise TypeError(
+                f"Expected TransactionConfig or Engine, got {type(config_or_engine).__name__!r}"
+            )
 
     @property
-    def engine(self):
+    def engine(self) -> Engine:
         return self._engine
 
     @property

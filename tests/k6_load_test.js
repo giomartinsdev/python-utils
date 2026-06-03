@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
-const BASE_URL = 'http://127.0.0.1:5000';
+const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
 
 const errorRate = new Rate('errors');
 const deadlockErrors = new Counter('deadlock_errors');

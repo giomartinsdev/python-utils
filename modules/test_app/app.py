@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from flask import Flask, jsonify, request
 from sqlalchemy import Column, Integer, String, select
 from sqlalchemy.orm import DeclarativeBase
 
-from modules.database_handler import TransactionManager
+from modules.database_handler import TransactionConfig, TransactionManager
 from modules.timezone_handler import TimezoneAware
 
 
@@ -21,10 +22,17 @@ class Event(Base):
     timezone = Column(String(50), nullable=False)
     hour = Column(Integer, nullable=False)
     minute = Column(Integer, nullable=False)
-    created_utc = Column(String(30), nullable=False)
+    created_utc = Column(String(50), nullable=False)
 
 
-manager = TransactionManager("sqlite:///test_app.db")
+def _build_manager() -> TransactionManager:
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return TransactionManager(TransactionConfig(url=db_url))
+    return TransactionManager(TransactionConfig(url="sqlite:///test_app.db"))
+
+
+manager = _build_manager()
 
 
 def create_app() -> Flask:

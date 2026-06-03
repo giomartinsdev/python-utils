@@ -10,7 +10,7 @@ from sqlalchemy import Column, Integer, String, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase
 
-from modules.database_handler import TransactionManager
+from modules.database_handler import TransactionConfig, TransactionManager
 
 
 # ──────────────────────────────────────────────
@@ -34,7 +34,7 @@ class User(Base):
 @pytest.fixture
 def manager():
     """Create a TransactionManager with an in-memory SQLite DB."""
-    mgr = TransactionManager("sqlite:///:memory:")
+    mgr = TransactionManager(TransactionConfig(url="sqlite:///:memory:"))
     Base.metadata.create_all(mgr.engine)
     yield mgr
     mgr.dispose()
