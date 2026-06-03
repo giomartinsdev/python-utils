@@ -6,7 +6,7 @@ import random
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Generator, Sequence, TypeVar
+from typing import Any, Callable, ClassVar, Generator, Sequence, TypeVar
 
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
@@ -37,6 +37,40 @@ class TransactionConfig:
 
 class TransactionManager:
     """SQLAlchemy 2.x transaction manager with ACID best practices."""
+
+    _instance: ClassVar[TransactionManager | None] = None
+
+    # ── Singleton interface ──────────────────────────────────────────────────
+
+    @classmethod
+    def configure(cls, config_or_engine: TransactionConfig | Engine) -> TransactionManager:
+        """Initialize the singleton. Raises if already configured."""
+        if cls._instance is not None:
+            raise RuntimeError(
+                "TransactionManager is already configured. "
+                "Call TransactionManager.reset() before reconfiguring."
+            )
+        cls._instance = cls(config_or_engine)
+        return cls._instance
+
+    @classmethod
+    def get(cls) -> TransactionManager:
+        """Return the singleton. Raises if configure() was never called."""
+        if cls._instance is None:
+            raise RuntimeError(
+                "TransactionManager is not configured. "
+                "Call TransactionManager.configure() first."
+            )
+        return cls._instance
+
+    @classmethod
+    def reset(cls) -> None:
+        """Clear the singleton and dispose the engine. Use in tests or on reconfiguration."""
+        if cls._instance is not None:
+            cls._instance.dispose()
+            cls._instance = None
+
+    # ── Instance construction ────────────────────────────────────────────────
 
     def __init__(self, config_or_engine: TransactionConfig | Engine) -> None:
         if isinstance(config_or_engine, TransactionConfig):

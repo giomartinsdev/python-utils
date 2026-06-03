@@ -33,11 +33,12 @@ class User(Base):
 
 @pytest.fixture
 def manager():
-    """Create a TransactionManager with an in-memory SQLite DB."""
-    mgr = TransactionManager(TransactionConfig(url="sqlite:///:memory:"))
+    """Configure the singleton with an in-memory SQLite DB and reset after each test."""
+    TransactionManager.reset()  # clear any prior instance (e.g. from app module import)
+    mgr = TransactionManager.configure(TransactionConfig(url="sqlite:///:memory:"))
     Base.metadata.create_all(mgr.engine)
     yield mgr
-    mgr.dispose()
+    TransactionManager.reset()
 
 
 # ──────────────────────────────────────────────
@@ -233,8 +234,14 @@ class TestMisc:
     def test_session_factory_property(self, manager: TransactionManager):
         assert manager.session_factory is not None
 
-    def test_from_engine(self, manager: TransactionManager):
-        """Can be created from an existing engine."""
-        mgr2 = TransactionManager(manager.engine)
+    def test_get_returns_singleton(self, manager: TransactionManager):
+        """TransactionManager.get() returns the same configured instance."""
+        assert TransactionManager.get() is manager
+
+    def test_configure_from_engine(self, manager: TransactionManager):
+        """Can reconfigure the singleton from an existing engine after reset."""
+        engine = manager.engine
+        TransactionManager.reset()
+        mgr2 = TransactionManager.configure(engine)
         with mgr2.session() as session:
             session.execute(text("SELECT 1"))

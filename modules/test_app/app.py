@@ -25,18 +25,22 @@ class Event(Base):
     created_utc = Column(String(50), nullable=False)
 
 
-def _build_manager() -> TransactionManager:
+def _configure_manager() -> None:
+    """Configure the singleton from DATABASE_URL env var or fall back to SQLite."""
+    if TransactionManager._instance is not None:
+        return
     db_url = os.environ.get("DATABASE_URL")
-    if db_url:
-        return TransactionManager(TransactionConfig(url=db_url))
-    return TransactionManager(TransactionConfig(url="sqlite:///test_app.db"))
+    TransactionManager.configure(TransactionConfig(
+        url=db_url if db_url else "sqlite:///test_app.db"
+    ))
 
 
-manager = _build_manager()
+_configure_manager()
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    manager = TransactionManager.get()
     Base.metadata.create_all(manager.engine)
 
     # ── Timezone routes ──
@@ -131,7 +135,7 @@ def create_app() -> Flask:
             created_utc=tz.utc.isoformat(),
         )
 
-        with manager.session() as session:
+        with TransactionManager.get().session() as session:
             session.add(event)
             session.flush()
             event_id = event.id
@@ -141,7 +145,7 @@ def create_app() -> Flask:
     @app.route("/events", methods=["GET"])
     def list_events():
         """List all events with their timezone-aware times."""
-        with manager.read_only() as session:
+        with TransactionManager.get().read_only() as session:
             events = session.execute(select(Event)).scalars().all()
             today = datetime.now()
             result = []
@@ -185,8 +189,9 @@ def create_app() -> Flask:
             except (KeyError, ValueError) as e:
                 return jsonify({"error": str(e)}), 400
 
-        with manager.session() as session:
-            count = manager.bulk_operation(session, items, batch_size=10)
+        mgr = TransactionManager.get()
+        with mgr.session() as session:
+            count = mgr.bulk_operation(session, items, batch_size=10)
 
         return jsonify({"created": count}), 201
 
@@ -197,7 +202,8 @@ def create_app() -> Flask:
         Creates a 'safe' event, then attempts a nested savepoint that fails.
         The safe event persists; the nested one rolls back.
         """
-        with manager.session() as session:
+        mgr = TransactionManager.get()
+        with mgr.session() as session:
             safe = Event(
                 name="Safe Event",
                 timezone="UTC",
@@ -209,7 +215,7 @@ def create_app() -> Flask:
 
             nested_rolled_back = False
             try:
-                with manager.nested(session):
+                with mgr.nested(session):
                     risky = Event(
                         name="Risky Event",
                         timezone="UTC",
