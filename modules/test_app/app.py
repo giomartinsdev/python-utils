@@ -79,13 +79,18 @@ def create_app() -> Flask:
             "t2_eq_t1": t2 == t1,
         })
 
-    @app.route("/time/convert/<path:tz_from>/<path:tz_to>")
-    def convert_time(tz_from: str, tz_to: str):
-        """Convert current time from one timezone to another."""
+    @app.route("/time/convert")
+    def convert_time():
+        """Convert current time from one timezone to another.
+        Query params: from, to
+        Example: /time/convert?from=America/Sao_Paulo&to=America/New_York
+        """
         try:
+            tz_from = request.args["from"]
+            tz_to = request.args["to"]
             source = TimezoneAware(tz_from)
             converted = source.to(tz_to)
-        except ValueError as e:
+        except (KeyError, ValueError) as e:
             return jsonify({"error": str(e)}), 400
 
         return jsonify({
@@ -103,6 +108,8 @@ def create_app() -> Flask:
         JSON body: {"name": "Meeting", "timezone": "America/Sao_Paulo", "hour": 14, "minute": 30}
         """
         data = request.get_json(force=True)
+        if data is None:
+            return jsonify({"error": "Invalid or empty JSON body"}), 400
         try:
             tz = TimezoneAware(data["timezone"])
         except (KeyError, ValueError) as e:
@@ -128,10 +135,11 @@ def create_app() -> Flask:
         """List all events with their timezone-aware times."""
         with manager.read_only() as session:
             events = session.execute(select(Event)).scalars().all()
+            today = datetime.now()
             result = []
             for e in events:
                 tz = TimezoneAware(e.timezone, datetime(
-                    datetime.now().year, datetime.now().month, datetime.now().day,
+                    today.year, today.month, today.day,
                     e.hour, e.minute,
                 ))
                 result.append({
@@ -159,15 +167,15 @@ def create_app() -> Flask:
         for entry in data:
             try:
                 tz = TimezoneAware(entry["timezone"])
+                items.append(Event(
+                    name=entry["name"],
+                    timezone=entry["timezone"],
+                    hour=entry.get("hour", 0),
+                    minute=entry.get("minute", 0),
+                    created_utc=tz.utc.isoformat(),
+                ))
             except (KeyError, ValueError) as e:
                 return jsonify({"error": str(e)}), 400
-            items.append(Event(
-                name=entry["name"],
-                timezone=entry["timezone"],
-                hour=entry.get("hour", 0),
-                minute=entry.get("minute", 0),
-                created_utc=tz.utc.isoformat(),
-            ))
 
         with manager.session() as session:
             count = manager.bulk_operation(session, items, batch_size=10)

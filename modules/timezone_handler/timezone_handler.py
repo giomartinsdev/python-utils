@@ -5,6 +5,8 @@ from functools import total_ordering
 from typing import Union
 from zoneinfo import ZoneInfo, available_timezones
 
+_AVAILABLE_TIMEZONES: frozenset[str] = frozenset(available_timezones())
+
 
 @total_ordering
 class TimezoneAware:
@@ -13,7 +15,7 @@ class TimezoneAware:
     __slots__ = ("_tz", "_tz_name", "_anchor")
 
     def __init__(self, tz_name: str, dt: datetime | None = None) -> None:
-        if tz_name not in available_timezones() and tz_name != "UTC":
+        if tz_name not in _AVAILABLE_TIMEZONES and tz_name != "UTC":
             raise ValueError(
                 f"Unknown timezone: {tz_name!r}. "
                 f"Use a valid IANA timezone name (e.g., 'America/Sao_Paulo')."
@@ -94,7 +96,9 @@ class TimezoneAware:
         return self.time < other.time
 
     def __hash__(self) -> int:
-        return hash(self.time)
+        if self._anchor is None:
+            raise TypeError("unhashable type: live (unanchored) TimezoneAware")
+        return hash(self._anchor)
 
     def diff(self, other: TimezoneAware) -> timedelta:
         """Absolute time difference between two instances (always positive)."""

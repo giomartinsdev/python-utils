@@ -126,15 +126,16 @@ class TransactionManager:
     ) -> Callable[[F], F]:
         """Decorator that retries on transient DB errors with exponential backoff + jitter."""
 
+        if max_retries < 1:
+            raise ValueError("max_retries must be >= 1")
+
         def decorator(func: F) -> F:
             @functools.wraps(func)
             def wrapper(*args: Any, **kwargs: Any) -> Any:
-                last_exception: Exception | None = None
                 for attempt in range(1, max_retries + 1):
                     try:
                         return func(*args, **kwargs)
                     except retryable_exceptions as exc:
-                        last_exception = exc
                         if attempt == max_retries:
                             logger.error(
                                 "All %d retries exhausted for %s: %s",
@@ -153,7 +154,6 @@ class TransactionManager:
                             exc,
                         )
                         time.sleep(delay)
-                raise last_exception  # type: ignore[misc]
 
             return wrapper  # type: ignore[return-value]
 
